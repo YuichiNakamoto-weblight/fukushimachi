@@ -1,0 +1,460 @@
+<!-- src/components/PopupAnimModal.vue -->
+<!-- 起動時のポップアップアニメーション -->
+<template>
+  <teleport to="#modal-root">
+    <div v-if="open" class="popup-anim-overlay" @click.self="onClose('backdrop')">
+      <div class="popup-anim-modal" role="dialog" aria-modal="true">
+        <h2 class="popup-anim-title">ふくしまちをスマートフォン画面に保存する方法</h2>
+        <div ref="animEl" class="popup-anim-canvas"></div>
+
+        <div class="popup-anim-controls">
+          <button type="button" class="popup-anim-btn" @click="toggle">
+            {{ playing ? "一時停止" : "再生" }}
+          </button>
+          <button type="button" class="popup-anim-btn" @click="restart">最初から</button>
+          <label class="dont-inline">
+            <input type="checkbox" v-model="dontShowAgain" />
+            今後表示しない
+          </label>
+        </div>
+
+        <div class="popup-anim-seek">
+          <input
+            type="range"
+            min="0"
+            max="1000"
+            :value="slider"
+            @input="onSeek"
+            aria-label="再生位置"
+          />
+          <span class="popup-anim-pct">{{ Math.round(progress * 100) }}%</span>
+        </div>
+
+        <div class="popup-anim-actions">
+          <button
+            type="button"
+            class="popup-anim-btn popup-anim-primary"
+            @click="onClose('button')"
+          >
+            閉じる
+          </button>
+        </div>
+      </div>
+    </div>
+  </teleport>
+</template>
+
+<script setup>
+import { ref, watch, onBeforeUnmount, nextTick } from "vue";
+import lottie from "lottie-web";
+
+const props = defineProps({
+  open: { type: Boolean, default: false },
+
+  /**
+   * 「今後表示しない」を保存するための識別子
+   * 例: 'authPopup', 'welcome2026', 'jobDetailPrompt' など
+   */
+  popupKey: { type: String, required: true },
+
+  /**
+   * OS別アニメファイル（public配下を想定）
+   * 例:
+   *  ios: '/animations/popup_ios.json'
+   *  android: '/animations/popup_android.json'
+   *  other: '/animations/popup_default.json'
+   */
+  files: {
+    type: Object,
+    required: true,
+    default: () => ({ ios: "", android: "", other: "" }),
+  },
+
+  /**
+   * 「今後表示しない」を localStorage に保存するか
+   */
+  persistDontShow: { type: Boolean, default: true },
+});
+
+const emit = defineEmits([
+  "update:open",
+  /**
+   * closeイベントで親が「閉じた理由・今後表示しないの選択」を受け取れるようにする
+   * payload: { reason, dontShowAgain, popupKey }
+   */
+  "close",
+]);
+
+const animEl = ref(null);
+let anim = null;
+let rafId = null;
+
+const playing = ref(true);
+const progress = ref(0); // 0..1
+const slider = ref(0); // 0..1000
+const dontShowAgain = ref(false);
+
+const storageKey = () => `popup:dontshow:${props.popupKey}`;
+
+function detectOS() {
+  const ua = navigator.userAgent.toLowerCase();
+  if (/iphone|ipad|ipod/.test(ua)) return "ios";
+  if (/android/.test(ua)) return "android";
+  return "other";
+}
+
+function pickFile() {
+  const os = detectOS();
+  return props.files?.[os] || props.files?.other;
+}
+
+function loadDontShow() {
+  if (!props.persistDontShow) return;
+  dontShowAgain.value = localStorage.getItem(storageKey()) === "1";
+}
+
+function saveDontShow() {
+  if (!props.persistDontShow) return;
+  localStorage.setItem(storageKey(), dontShowAgain.value ? "1" : "0");
+}
+
+function destroyAnimation() {
+  if (rafId) cancelAnimationFrame(rafId);
+  rafId = null;
+  if (anim) {
+    anim.destroy();
+    anim = null;
+  }
+}
+
+function syncUI() {
+  if (!anim) return;
+  const total = anim.totalFrames || 1;
+  const cur = anim.currentFrame || 0;
+  const p = Math.min(1, Math.max(0, cur / total));
+  progress.value = p;
+  slider.value = Math.round(p * 1000);
+  rafId = requestAnimationFrame(syncUI);
+}
+
+function startAnimation() {
+  destroyAnimation();
+
+  if (!animEl.value) {
+    console.warn("[PopupAnimModal] animEl is null");
+    return;
+  }
+
+  const path = pickFile();
+  console.log("[PopupAnimModal] UA=", navigator.userAgent);
+  console.log("[PopupAnimModal] detectedOS=", detectOS());
+  console.log("[PopupAnimModal] path=", path);
+
+  if (!path) return;
+
+  // 念のため前回のDOMを消す
+  animEl.value.innerHTML = "";
+
+  // ここで anim を作る
+  anim = lottie.loadAnimation({
+    container: animEl.value,
+    renderer: "svg",
+    loop: false,
+    autoplay: true,
+    path,
+  });
+
+  // ★イベントは loadAnimation の「後」に付ける
+  anim.addEventListener("data_ready", () => console.log("[lottie] data_ready"));
+  anim.addEventListener("data_failed", () => console.warn("[lottie] data_failed", path));
+
+  playing.value = true;
+  syncUI();
+}
+
+function toggle() {
+  if (!anim) return;
+  if (playing.value) anim.pause();
+  else anim.play();
+  playing.value = !playing.value;
+}
+
+function restart() {
+  if (!anim) return;
+  anim.goToAndPlay(0, true);
+  playing.value = true;
+}
+
+function onSeek(e) {
+  if (!anim) return;
+  const v = Number(e.target.value); // 0..1000
+  const p = v / 1000;
+  const total = anim.totalFrames || 1;
+  const frame = p * total;
+  anim.goToAndStop(frame, true); // シークしたら止める（好みで goToAndPlay にしてもOK）
+  playing.value = false;
+}
+
+function onClose(reason) {
+  // 閉じる時に停止（破棄）
+  destroyAnimation();
+
+  // 「今後表示しない」を保存
+  saveDontShow();
+
+  emit("close", {
+    reason,
+    dontShowAgain: dontShowAgain.value,
+    popupKey: props.popupKey,
+  });
+
+  emit("update:open", false);
+}
+
+// openになったらロードして再生 / closeで停止
+watch(
+  () => props.open,
+  async (v) => {
+    console.log("[PopupAnimModal] open changed:", v);
+    if (v) {
+      loadDontShow();
+      await nextTick(); // ★描画を待つ
+      startAnimation();
+    } else {
+      destroyAnimation();
+    }
+  },
+  { immediate: true },
+);
+
+onBeforeUnmount(() => destroyAnimation());
+</script>
+
+<style scoped>
+.popup-anim-title {
+  margin: 0;
+  padding: 2px 0px 10px 0px;
+  text-align: center;
+  font-size: 18px;
+  font-weight: 700;
+  line-height: 1.3;
+  border-bottom: 1px solid #e5e7eb;
+}
+
+.popup-anim-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 2147483647;
+}
+
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 2147483647;
+}
+
+/* ★ 縦長・大きめのモーダル */
+.modal {
+  width: min(520px, 94vw); /* 少し横も広く */
+  height: min(86svh, 820px); /* ★縦を大きく（スマホはsvh推奨） */
+  background: #fff;
+  border-radius: 14px;
+  padding: 14px;
+  display: flex; /* ★縦レイアウト */
+  flex-direction: column;
+  gap: 10px;
+  overflow: hidden; /* はみ出し防止 */
+}
+
+/* ★ アニメ領域を伸縮させる（ここが縦長の肝） */
+.anim {
+  flex: 1; /* ★残り高さを全部使う */
+  min-height: 360px; /* ここを大きくすると縦長感UP */
+  width: 100%;
+  /* height指定は不要。flexで伸びる */
+}
+
+/* SVGレンダリングを確実にフィット */
+.anim :deep(svg) {
+  width: 100% !important;
+  height: 100% !important;
+}
+
+/* 下部UIは固定の高さで並ぶ */
+.controls,
+.seek,
+.dont,
+.actions {
+  margin-top: 12px;
+  display: flex;
+  justify-content: center; /* ★中央寄せ */
+}
+
+/* ボタンの見た目はそのままでOK */
+.btn {
+  padding: 10px 12px;
+  border: 1px solid #ddd;
+  background: #fff;
+  border-radius: 10px;
+}
+.primary {
+  width: auto; /* ★横いっぱいを解除 */
+  min-width: 220px; /* 好みで調整 */
+  padding: 12px 28px;
+  border-color: #ff7a00;
+}
+
+/* ★縦長・大きめにする（ここが効く） */
+.popup-anim-modal {
+  width: min(520px, 94vw);
+  height: min(86svh, 820px);
+  background: #fff;
+  border-radius: 14px;
+  padding: 14px;
+
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  overflow: hidden;
+}
+
+/* ★アニメ領域を縦に伸ばす */
+.popup-anim-canvas {
+  flex: 1;
+  min-height: 360px; /* もっと縦長にしたければ 420px/520px に */
+  width: 100%;
+  height: auto; /* 240px固定を解除 */
+}
+
+/* Lottie SVGをフィット */
+.popup-anim-canvas :deep(svg) {
+  width: 100% !important;
+  height: 100% !important;
+}
+
+.popup-anim-controls {
+  display: flex;
+  gap: 10px;
+  margin-top: 10px;
+}
+
+.popup-anim-seek {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 10px;
+}
+.popup-anim-seek input[type="range"] {
+  flex: 1;
+}
+
+.popup-anim-pct {
+  min-width: 52px;
+  text-align: right;
+}
+
+.popup-anim-dont {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  margin-top: 10px;
+}
+
+.popup-anim-actions {
+  margin-top: 0px;
+  display: flex;
+  justify-content: center; /* ★中央寄せ */
+}
+
+.popup-anim-btn {
+  padding: 10px 12px;
+  border: 1px solid #ddd;
+  background: #f15064;
+  border-radius: 10px;
+  text-align: center;
+  color: #fff;
+}
+
+.popup-anim-primary {
+  width: auto !important; /* ★100%を打ち消す */
+  min-width: 220px; /* 好きに調整 */
+  padding: 12px 28px;
+  border-color: #ff7a00;
+}
+
+.controls {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 10px;
+}
+
+/* ★ 右端に寄せる */
+.dont-inline {
+  margin-left: auto; /* これが右寄せのキー */
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  white-space: nowrap;
+  user-select: none;
+  font-size: 14px;
+}
+
+/* シークバーを見えるように（共通CSSに負けないように scoped + 詳細指定） */
+.popup-anim-seek input[type="range"] {
+  width: 100%;
+  height: 10px;
+  background: transparent;
+  -webkit-appearance: none;
+  appearance: none;
+}
+
+/* --- WebKit (Chrome/Safari/iOS) --- */
+.popup-anim-seek input[type="range"]::-webkit-slider-runnable-track {
+  height: 8px;
+  background: #d1d5db; /* 線（トラック）の色 */
+  border-radius: 999px;
+}
+.popup-anim-seek input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 22px;
+  height: 22px;
+  margin-top: -7px; /* トラック中央に乗せる */
+  border-radius: 50%;
+  background: #ff7a00; /* つまみの色 */
+  border: 2px solid #fff;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.25);
+}
+
+/* --- Firefox --- */
+.popup-anim-seek input[type="range"]::-moz-range-track {
+  height: 8px;
+  background: #d1d5db;
+  border-radius: 999px;
+}
+.popup-anim-seek input[type="range"]::-moz-range-thumb {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: #ff7a00;
+  border: 2px solid #fff;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.25);
+}
+
+/* フォーカス時に分かりやすく（任意） */
+.popup-anim-seek input[type="range"]:focus {
+  outline: none;
+}
+.popup-anim-seek input[type="range"]:focus::-webkit-slider-thumb {
+  box-shadow: 0 0 0 4px rgba(255, 122, 0, 0.25);
+}
+</style>
