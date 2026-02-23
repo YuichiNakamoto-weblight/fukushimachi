@@ -8,7 +8,6 @@
 
       <main class="l-sec mypage-detail">
         <div class="page-title maru">お知らせ一覧</div>
-        <!-- <button type="button" class="btn btn-ghost logout-btn" @click="logout">ログアウト</button> -->
         <!-- フィルタ -->
         <div class="toolbar">
           <div class="filters">
