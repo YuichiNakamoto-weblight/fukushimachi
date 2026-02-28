@@ -305,7 +305,8 @@ import PcModel from "@/components/layout/PcModel.vue";
 import PopupAnimModal from "@/components/PopupAnimModal.vue";
 
 const popupOpen = ref(false);
-const ENABLE_POPUP_ANIM = false; // ← trueに戻せば即復活
+// const ENABLE_POPUP_ANIM = false; // ← trueに戻せば即復活
+const ENABLE_POPUP_ANIM = true;
 
 const popupFiles = {
   ios: "/animations/popup_ios.json",

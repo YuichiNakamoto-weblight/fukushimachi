@@ -4,29 +4,14 @@
   <teleport to="#modal-root">
     <div v-if="open" class="popup-anim-overlay" @click.self="onClose('backdrop')">
       <div class="popup-anim-modal" role="dialog" aria-modal="true">
-        <button
-          type="button"
-          class="popup-anim-close"
-          aria-label="閉じる"
-          @click="onClose('button')"
-        >
-          <span class="popup-anim-close-x">×</span>
-        </button>
-        <!-- <div ref="animEl" class="popup-anim-canvas"></div> -->
-        <div class="popup-anim-canvas-wrap">
-          <div ref="animEl" class="popup-anim-canvas"></div>
+        <!-- <h2 class="popup-anim-title">ふくしまちをスマートフォン画面に保存する方法</h2> -->
+        <div ref="animEl" class="popup-anim-canvas"></div>
 
-          <div v-if="ended" class="popup-anim-replay-overlay">
-            <button type="button" class="popup-anim-replay-btn" @click="replay">
-              もう一度再生する
-            </button>
-          </div>
-        </div>
         <div class="popup-anim-controls">
-          <!-- <button type="button" class="popup-anim-btn" @click="toggle">
+          <button type="button" class="popup-anim-btn" @click="toggle">
             {{ playing ? "一時停止" : "再生" }}
           </button>
-          <button type="button" class="popup-anim-btn" @click="restart">最初から</button> -->
+          <button type="button" class="popup-anim-btn" @click="restart">最初から</button>
           <label class="dont-inline">
             <input type="checkbox" v-model="dontShowAgain" />
             今後表示しない
@@ -45,7 +30,7 @@
           <span class="popup-anim-pct">{{ Math.round(progress * 100) }}%</span>
         </div>
 
-        <!-- <div class="popup-anim-actions">
+        <div class="popup-anim-actions">
           <button
             type="button"
             class="popup-anim-btn popup-anim-primary"
@@ -53,7 +38,7 @@
           >
             閉じる
           </button>
-        </div> -->
+        </div>
       </div>
     </div>
   </teleport>
@@ -62,8 +47,6 @@
 <script setup>
 import { ref, watch, onBeforeUnmount, nextTick } from "vue";
 import lottie from "lottie-web";
-
-const ended = ref(false);
 
 const props = defineProps({
   open: { type: Boolean, default: false },
@@ -181,18 +164,6 @@ function startAnimation() {
     path,
   });
 
-  anim.addEventListener("complete", () => {
-    ended.value = true;
-
-    // ★白化対策：最後のフレームに固定して保持する
-    try {
-      const last = Math.max(0, Math.floor((anim.totalFrames || 1) - 1));
-      anim.goToAndStop(last, true);
-    } catch (e) {
-      console.warn("[lottie] keep last frame failed", e);
-    }
-  });
-
   // ★イベントは loadAnimation の「後」に付ける
   anim.addEventListener("data_ready", () => console.log("[lottie] data_ready"));
   anim.addEventListener("data_failed", () => console.warn("[lottie] data_failed", path));
@@ -201,56 +172,30 @@ function startAnimation() {
   syncUI();
 }
 
-function replay() {
+function toggle() {
   if (!anim) return;
-  ended.value = false;
-  anim.goToAndPlay(0, true);
+  if (playing.value) anim.pause();
+  else anim.play();
+  playing.value = !playing.value;
 }
 
-// function toggle() {
-//   if (!anim) return;
-//   if (playing.value) anim.pause();
-//   else anim.play();
-//   playing.value = !playing.value;
-// }
-
-// function restart() {
-//   if (!anim) return;
-//   anim.goToAndPlay(0, true);
-//   playing.value = true;
-// }
+function restart() {
+  if (!anim) return;
+  anim.goToAndPlay(0, true);
+  playing.value = true;
+}
 
 function onSeek(e) {
   if (!anim) return;
-
   const v = Number(e.target.value); // 0..1000
-  let p = v / 1000; // 0..1
-
+  const p = v / 1000;
   const total = anim.totalFrames || 1;
-
-  // ★終端（100%）は白化しやすいので、最後の有効フレーム手前へ丸める
-  // -1 だとまだ白化する素材もあるので、-2 が無難
-  const lastSafe = Math.max(0, Math.floor(total - 2));
-
-  let frame = Math.floor(p * total);
-
-  // ★100%付近は安全フレームへ
-  if (p >= 0.999) {
-    frame = lastSafe;
-  } else {
-    // 範囲外を防ぐ
-    frame = Math.min(Math.max(frame, 0), lastSafe);
-  }
-
-  anim.goToAndStop(frame, true);
-
-  // UI側の状態も合わせる（100%扱いにしたいなら ended を true）
+  const frame = p * total;
+  anim.goToAndStop(frame, true); // シークしたら止める（好みで goToAndPlay にしてもOK）
   playing.value = false;
-  ended.value = p >= 0.999; // もし「もう一度再生する」表示に使っているなら
 }
 
 function onClose(reason) {
-  ended.value = false;
   // 閉じる時に停止（破棄）
   destroyAnimation();
 
@@ -374,11 +319,11 @@ onBeforeUnmount(() => destroyAnimation());
   background: #fff;
   border-radius: 14px;
   padding: 14px;
-  position: relative; /* ★必須 */
+
   display: flex;
   flex-direction: column;
   gap: 10px;
-  overflow: visible;
+  overflow: hidden;
 }
 
 /* ★アニメ領域を縦に伸ばす */
@@ -398,14 +343,14 @@ onBeforeUnmount(() => destroyAnimation());
 .popup-anim-controls {
   display: flex;
   gap: 10px;
-  /* margin-top: 10px; */
+  margin-top: 10px;
 }
 
 .popup-anim-seek {
   display: flex;
   align-items: center;
   gap: 10px;
-  /* margin-top: 10px; */
+  margin-top: 10px;
 }
 .popup-anim-seek input[type="range"] {
   flex: 1;
@@ -436,13 +381,12 @@ onBeforeUnmount(() => destroyAnimation());
   border-radius: 10px;
   text-align: center;
   color: #fff;
-  font-size: 14px;
 }
 
 .popup-anim-primary {
   width: auto !important; /* ★100%を打ち消す */
   min-width: 220px; /* 好きに調整 */
-  /* padding: 12px 28px; */
+  padding: 12px 28px;
   border-color: #ff7a00;
 }
 
@@ -455,15 +399,13 @@ onBeforeUnmount(() => destroyAnimation());
 
 /* ★ 右端に寄せる */
 .dont-inline {
-  /* margin-left: auto; これが右寄せのキー */
-  margin: auto;
+  margin-left: auto; /* これが右寄せのキー */
   display: inline-flex;
   align-items: center;
   gap: 8px;
   white-space: nowrap;
   user-select: none;
   font-size: 14px;
-  margin-top: 10px;
 }
 
 /* シークバーを見えるように（共通CSSに負けないように scoped + 詳細指定） */
@@ -514,77 +456,5 @@ onBeforeUnmount(() => destroyAnimation());
 }
 .popup-anim-seek input[type="range"]:focus::-webkit-slider-thumb {
   box-shadow: 0 0 0 4px rgba(255, 122, 0, 0.25);
-}
-
-/* 右上の×ボタン */
-.popup-anim-close {
-  z-index: 5; /* ★追加 */
-  position: absolute;
-  top: -10px;
-  right: -10px;
-  width: 44px;
-  height: 44px;
-  border-radius: 999px;
-  border: 1px solid #ddd;
-  /* background: #fff; */
-  background: #ff7a00;
-  /* color: #111; */
-  color: #ffffff;
-  font-size: 30px;
-  line-height: 1;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  cursor: pointer;
-  padding: 0;
-}
-
-.popup-anim-close-x {
-  display: inline-block;
-  line-height: 1;
-  transform: translateY(-2px); /* 下に1px（必要に応じて -1px/+2px など） */
-}
-
-/* “今後表示しない” の配置（右寄せ） */
-.popup-anim-options {
-  display: flex;
-  justify-content: flex-end;
-  margin-top: 6px;
-}
-
-/* アニメ領域を相対配置にして、中央オーバーレイを置けるように */
-.popup-anim-canvas-wrap {
-  position: relative;
-  width: 100%;
-  flex: 1;
-  min-height: 360px; /* 既存に合わせて調整 */
-}
-
-/* 既存canvasはそのまま使う（必要なら height:auto は維持） */
-.popup-anim-canvas {
-  width: 100%;
-  height: 100%;
-}
-
-/* 終了時の中央オーバーレイ */
-.popup-anim-replay-overlay {
-  position: absolute;
-  inset: 0;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-
-  /* うっすら暗くしてボタンを目立たせる（不要なら消してOK） */
-  background: rgba(255, 255, 255, 0.35);
-}
-
-.popup-anim-replay-btn {
-  padding: 12px 18px;
-  border-radius: 999px;
-  border: 1px solid #ddd;
-  background: #fff;
-  font-size: 14px;
-  font-weight: 700;
-  cursor: pointer;
 }
 </style>

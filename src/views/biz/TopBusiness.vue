@@ -286,7 +286,8 @@ import PcModel from "@/components/layout/PcModel.vue";
 import PopupAnimModal from "@/components/PopupAnimModal.vue";
 
 const popupOpen = ref(false);
-const ENABLE_POPUP_ANIM = false; // ← trueに戻せば即復活
+// const ENABLE_POPUP_ANIM = false; // ← trueに戻せば即復活
+const ENABLE_POPUP_ANIM = true;
 
 const base = import.meta.env.BASE_URL; // 例: '/' または '/staging/'
 const popupFiles = {
